@@ -1,0 +1,3 @@
+## Using Collaborative-filtering Technique for Model Training and Recommendation Model Deployments with Kubeflow
+This project  explains the implementation technique for Collaborative-filtering workflow implementation for model training and deployment.Collaborative-filtering system operates by finding users with similar interests and provides recommendations to a user based on a similar interest accrued over time with another. This system will be designed to predict a user’s interest or suggest likely products the user might be interested in. At the end of this project, we will have a workflow process in place for building API for training and serving recommendation of products.
+
