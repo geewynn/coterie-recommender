@@ -1,6 +1,8 @@
 # Kubeflow Recommendation Pipeline
 
 ## Mavencode
+![GitHub Logo](/images/logo.png)
+Format: ![Alt Text](url)
 
 [MavenCode](https://www.mavencode.com/) is a provider of consulting services and expertise for building and implementing large scale distributed reactive backend systems for processing massive large scale datasets. We are responsible for putting this open source project together. The goal is to create a community for the development of a recommenntdation system that would be applied in different use cases like ecommerce, health etc. 
 
