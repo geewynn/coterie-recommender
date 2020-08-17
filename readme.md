@@ -23,10 +23,12 @@ Generally , a recommender system  filters information and  seeks to predict the 
 1. Users give ratings to items purchased whether implicitly or explicitly.
 2. Users tastes are correlated.
 
+![](images/Collaborative%20filtering.PNG)
 
 ## WALS method for matrix factorization
+A key issue with Collaborative filtering is the **sparsity problem** which can be solved using matrix factorization. Matrix factorization is a class of collaborative filtering algorithms used in recommender systems. It is a simple embedding model that works by decomposing the user-item interaction matrix UV into the product of two lower dimensionality rectangular matrices. Lets say a user as never rated a product before, the matrix entry is zero. What matrix factorization does is to get back the original matrix by performing a dot product of the user and item matrix. The Weighted alternating least squares (WALS) method downgrades unrated items/products so such items don't drown the total loss. It does this by weighting the loss.
 
+![](images/matrix%20factorization.PNG)
 
 ## Kubeflow Pipeline
-
-## Tensorflow
+A [Kubeflow Pipeline](https://www.kubeflow.org/docs/pipelines/overview/pipelines-overview/) is a platform for building and deploying portable, scalable machine learning (ML) workflows based on Docker containers. After gathering the data, preprocesing and building the model, the kubeflow pipeline would be built to ensure the process is reusable and the Machine learning workflow is automated.
