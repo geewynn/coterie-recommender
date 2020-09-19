@@ -1,29 +1,6 @@
 import apache_beam as beam
 from apache_beam.options.pipeline_options import PipelineOptions
-import pandas as pd
-import numpy as np
-
-
-
-input_file = 'gs://coterie-rec/ml-100k/u.data' 
-
-# delete timestamp column
-def del_col(data):
-    del data['timestamp']
-    return data
-  
-# check for null values
-def check_null(data):
-    return len(data['userid']) > 0 and len(data['itemid']) > 0 and len(data['ratings']) > 0
-
-# converting to comma deliminated format
-def format_data(data):
-  data = ','.join([data['userid'], data['itemid'], data['ratings']])
-  return data
-
-#print rows
-def print_row(data):
-  print(data)
+ 
 
 def create_train_test_set(data):
   users = np.array(data[0])
@@ -65,13 +42,12 @@ def create_train_test_set(data):
 
 if __name__ == '__main__':
   options = PipelineOptions()
+  input_file = 'gs://coterie-rec/ml-100k/u.data'
   with beam.Pipeline(options=options) as pipeline:
-    (pipeline | 'ReadData' >> beam.io.ReadFromText('gs://coterie-rec/ml-100k/u.data', skip_header_lines=0) # read data with beam
+    data = (pipeline | 'ReadData' >> beam.io.ReadFromText(input_file, skip_header_lines=0) # read data with beam
         | 'SplitData' >> beam.Map(lambda x: x.split('\t'))
         | 'FormatToDict' >> beam.Map(lambda x: {"userid": x[0], "itemid": x[1], "ratings": x[2], "timestamp": x[3]}) # format to dict and name columns
-        | 'DeleteNullData' >> beam.Filter(check_null) # pick non null columns
-        | 'DeleteUnwantedData' >> beam.Map(del_col) # delete irrelevant columns
-        | 'FormatData' >> beam.Map(format_data)
+        | 'DeleteNullData' >> beam.Filter(lambda x: len(x)> 0)
+        | 'SelectWantedColumns' >> beam.Map(lambda x: ','.join([x['userid'], x['itemid'], x['ratings']])) # delete irrelevant columns
         #| 'CreateTrainTestSet' >> beam.Map(create_train_test_set)
-        #| 'writecsv' >> beam.io.WriteToText('result')) # write data to csv
-         | 'Print output' >> beam.Map(print_row))
+        | 'writecsv' >> beam.io.WriteToText('result.csv', header='userid, itemid, ratings')) # write data to csv
