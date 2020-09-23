@@ -1,53 +1,149 @@
+import os
+import datetime
+import tensorflow as tf
 import apache_beam as beam
-from apache_beam.options.pipeline_options import PipelineOptions
- 
-
-def create_train_test_set(data):
-  users = np.array(data[0])
-  items = np.array(data[1])
-  unique_users = np.unique(users)
-  unique_items = np.unique(items)
-  n_users = unique_users.shape[0]
-  n_items = unique_items.shape[0]
-  max_user = unique_users[-1]
-  max_item = unique_items[-1]
-  if n_users != max_user or n_items != max_item:
-    # make an array of 0-indexed unique user ids corresponding to the dataset
-    # stack of user ids
-    z = np.zeros(max_user+1, dtype=object)
-    z[unique_users] = np.arange(n_users)
-    u_r = z[users]
-
-    # make an array of 0-indexed unique item ids corresponding to the dataset
-    # stack of item ids
-    z = np.zeros(max_item+1, dtype=int)
-    z[unique_items] = np.arange(n_items)
-    i_r = z[items]
-
-    # construct the ratings set from the three stacks
-    np_ratings = np.array(data[2])
-    ratings = np.zeros((np_ratings.shape[0], 3), dtype=object)
-    ratings[:, 0] = u_r
-    ratings[:, 1] = i_r
-    ratings[:, 2] = np_ratings
-  else:
-    ratings = np.array(data)
-    # deal with 1-based user indices
-    ratings[:, 0] -= 1
-    ratings[:, 1] -= 1
-    TEST_SET_RATIO = 0.1
-    train_sparse, test_sparse = _create_sparse_train_and_test(ratings, n_users,n_items,TEST_SET_RATIO)
-    return ratings[:, 0], ratings[:, 1], train_sparse, test_sparse
+import tensorflow_transform as tft
+import tensorflow_transform.beam as tft_beam
+from tensorflow_transform.tf_metadata import dataset_metadata
+from tensorflow_transform.tf_metadata import schema_utils
+from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform.coders import example_proto_coder
 
 
-if __name__ == '__main__':
-  options = PipelineOptions()
-  input_file = 'gs://coterie-rec/ml-100k/u.data'
-  with beam.Pipeline(options=options) as pipeline:
-    data = (pipeline | 'ReadData' >> beam.io.ReadFromText(input_file, skip_header_lines=0) # read data with beam
-        | 'SplitData' >> beam.Map(lambda x: x.split('\t'))
-        | 'FormatToDict' >> beam.Map(lambda x: {"userid": x[0], "itemid": x[1], "ratings": x[2], "timestamp": x[3]}) # format to dict and name columns
-        | 'DeleteNullData' >> beam.Filter(lambda x: len(x)> 0)
-        | 'SelectWantedColumns' >> beam.Map(lambda x: ','.join([x['userid'], x['itemid'], x['ratings']])) # delete irrelevant columns
-        #| 'CreateTrainTestSet' >> beam.Map(create_train_test_set)
-        | 'writecsv' >> beam.io.WriteToText('result.csv', header='userid, itemid, ratings')) # write data to csv
+
+class MapAndFilterErrors(beam.PTransform):
+  """Like beam.Map but filters out erros in the map_fn."""
+
+  class _MapAndFilterErrorsDoFn(beam.DoFn):
+    """Count the bad examples using a beam metric."""
+
+    def __init__(self, fn):
+      self._fn = fn
+      # Create a counter to measure number of bad elements.
+      self._bad_elements_counter = beam.metrics.Metrics.counter(
+          'rating_example', 'bad_elements')
+
+    def process(self, element):
+      try:
+        yield self._fn(element)
+      except Exception:  # pylint: disable=broad-except
+        # Catch any exception the above call.
+        self._bad_elements_counter.inc(1)
+
+  def __init__(self, fn):
+    self._fn = fn
+
+  def expand(self, pcoll):
+    return pcoll | beam.ParDo(self._MapAndFilterErrorsDoFn(self._fn))
+
+
+USER_FEATURE_KEYS = [
+                'userid',
+                'itemid',
+]
+RATINGS_FEATURE_KEYS = [
+                        'ratings',
+]
+
+RAW_DATA_FEATURE_SPEC = dict([(name, tf.io.FixedLenFeature([], tf.int64))
+                              for name in USER_FEATURE_KEYS] +
+                             [(name, tf.io.FixedLenFeature([], tf.float32))
+                              for name in RATINGS_FEATURE_KEYS] )
+
+RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
+    schema_utils.schema_from_feature_spec(RAW_DATA_FEATURE_SPEC))
+
+
+def transform(data_file, OUTPUT_DIR):
+
+  def to_tfrecord(key_vlist, indexCol):
+    (key, vlist) = key_vlist
+    return {
+        "key": [key],
+        "indices": [value[indexCol] for value in vlist],
+        "values":  [value["ratings"] for value in vlist]
+        }
+
+  def write_count(a, outdir, basename):
+        filename = os.path.join(outdir, basename)
+        (a 
+         | "{}_1".format(basename) >> beam.Map(lambda x: (1, 1)) 
+         | "{}_2".format(basename) >> beam.combiners.Count.PerKey()
+         | "{}_3".format(basename) >> beam.Map(lambda x: (x[0], x[1]))
+         | "{}_write".format(basename) >> beam.io.WriteToText(file_path_prefix=filename, num_shards=1))
+        
+  def preprocessing_fn(inputs):
+    """Preprocess input columns into transformed columns."""
+    # Since we are modifying some features and leaving others unchanged, we
+    # start by setting `outputs` to a copy of `inputs.
+    outputs = inputs.copy()
+
+    # Scale numeric columns to have range [0, 1].
+    for key in RATINGS_FEATURE_KEYS:
+      outputs[key] = tft.scale_to_0_1(outputs[key])
+
+    for key in USER_FEATURE_KEYS:
+      tft.vocabulary(inputs[key], vocab_filename=key)
+
+    return outputs
+
+  
+
+  job_name = "preprocess-wals-features" + "-" + datetime.datetime.now().strftime("%y%m%d-%H%M%S")    
+  import shutil
+  print("Launching local job ... hang on")
+  OUTPUT_DIR = "/content/"
+  shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+  options = beam.pipeline.PipelineOptions()
+  RUNNER = "DirectRunner"
+  
+
+  with beam.Pipeline(RUNNER) as pipeline:
+    with tft_beam.Context(temp_dir='/content/'):
+      # Create a coder to read the census data with the schema.  To do this we
+      # need to list all columns in order since the schema doesn't specify the
+      # order of columns in the csv.
+      ordered_columns = [
+          'userid', 'itemid', 'ratings',
+      ]
+      converter = tft.coders.CsvCoder(ordered_columns, RAW_DATA_METADATA.schema)
+      raw_data = (
+          pipeline
+          | 'ReadTrainData' >> beam.io.ReadFromText(data_file)
+          | 'FixCommasTrainData' >> beam.Map(
+               lambda line: line.replace(', ', ','))
+          | 'DecodeTrainData' >> MapAndFilterErrors(converter.decode))
+          # | 'Print output' >> beam.Map(print))
+      raw_dataset = (raw_data, RAW_DATA_METADATA)
+      transformed_dataset, transform_fn = (
+          raw_dataset | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
+      transformed_data, transformed_metadata = transformed_dataset
+      _ = (transform_fn | "WriteTransformFn" >> transform_fn_io.WriteTransformFn(os.path.join(OUTPUT_DIR, "transform_fn")))
+            # do a group-by to create users_for_item and items_for_user
+      users_for_item = (transformed_data 
+                              | "map_items" >> beam.Map(lambda x : (x["itemid"], x))
+                              | "group_items" >> beam.GroupByKey()
+                              | "totfr_items" >> beam.Map(lambda item_userlist : to_tfrecord(item_userlist, "userid")))
+      items_for_user = (transformed_data
+                              | "map_users" >> beam.Map(lambda x : (x["userid"], x))
+                              | "group_users" >> beam.GroupByKey()
+                              | "totfr_users" >> beam.Map(lambda item_userlist : to_tfrecord(item_userlist, "itemid")))
+      output_schema = {
+                "key" : dataset_schema.ColumnSchema(tf.int64, [1], dataset_schema.FixedColumnRepresentation()),
+                "indices": dataset_schema.ColumnSchema(tf.int64, [], dataset_schema.ListColumnRepresentation()),
+                "values": dataset_schema.ColumnSchema(tf.float32, [], dataset_schema.ListColumnRepresentation())
+            }
+
+      _ = users_for_item | "users_for_item" >> beam.io.WriteToTFRecord(
+                    os.path.join(OUTPUT_DIR, "users_for_item"),
+                    coder = example_proto_coder.ExampleProtoCoder(
+                            dataset_schema.Schema(output_schema)))
+      _ = items_for_user | "items_for_user" >> beam.io.WriteToTFRecord(
+                    os.path.join(OUTPUT_DIR, "items_for_user"),
+                    coder = example_proto_coder.ExampleProtoCoder(
+                            dataset_schema.Schema(output_schema)))
+      write_count(users_for_item, OUTPUT_DIR, "nitems")
+      write_count(items_for_user, OUTPUT_DIR, "nusers")  
+
+transform('gs://coterie-rec/rating.csv', '/content/transformation')
