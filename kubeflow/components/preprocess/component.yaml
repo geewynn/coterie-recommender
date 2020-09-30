@@ -1,0 +1,29 @@
+name: preprocess
+description: Performs the IOB preprocessing.
+inputs:
+- {name: Input URI, type: GCSPath}
+- {name: transform URI template, type: GCSPath}
+- {name: user tftransform URI template, type: GCSPath}
+- {name: item tftransform URI template, type: GCSPath}
+- {name: nitems template, type: GCSPath}
+- {name: nusers template, type: GCSPath}
+outputs:
+  - name: transform URI
+    type: GCSPath
+  - name: user tftransform URI
+  - name: item tftransform URI
+  - name: nitems
+  - name: nusers
+implementation:
+  container:
+    image: gcr.io/cubeflop/kubeflow/rec/preprocess:latest
+    command: [
+      python3, /pipelines/component/src/preprocess.py,
+      --input,                        {inputValue: Input URI},
+      --transform,                      {inputValue: transform URI template},
+      --user_tftransform,                      {inputValue: user tftransform URI template},
+      --item_tftransform,    {inputValue: item tftransform URI template},
+
+      --nitems,                     {inputValue: nitems template},
+      --nusers,                     {inputValue: nusers template},
+    ]
