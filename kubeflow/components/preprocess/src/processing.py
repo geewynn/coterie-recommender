@@ -1,6 +1,7 @@
 import os
 import argparse
 import logging
+from pathlib import Path
 import apache_beam as beam
 import tensorflow as tf
 from apache_beam.options.pipeline_options import PipelineOptions
@@ -14,10 +15,9 @@ from tensorflow_transform.coders import example_proto_coder
 
 
 class MapAndFilterErrors(beam.PTransform):
-  """
-  Like beam.Map but filters out erros in the map_fn.
-  """
-  class MapAndFilterErrorsDoFn(beam.DoFn):
+  """Like beam.Map but filters out erros in the map_fn."""
+
+  class _MapAndFilterErrorsDoFn(beam.DoFn):
     """Count the bad examples using a beam metric."""
 
     def __init__(self, fn):
@@ -62,13 +62,18 @@ def transform(argv=None):
   parser = argparse.ArgumentParser()
   parser.add_argument('--input',dest='input',default='gs://coterie-rec/rating.csv',
       help='Input file to process.')
-  parser.add_argument('--output',dest='output',required=True,
-      help='Output file to write results to.')
-  parser.add_argument('--transform', type=str, help='')
-  parser.add_argument('--user_tftransform', type=str, help='')
-  parser.add_argument('--item_tftransform', type=str, help='')
-  parser.add_argument('--nitems', type=str, help='')
-  parser.add_argument('--nusers', type=str, help='')
+  parser.add_argument('--transform', help='')
+  parser.add_argument('--user-tftransform', help='')
+  parser.add_argument('--item-tftransform', help='')
+  parser.add_argument('--nitems', help='')
+  parser.add_argument('--nusers', help='')
+  
+  
+  parser.add_argument('--transform-path-file', help='')
+  parser.add_argument('--user-tftransform-path-file', help='')
+  parser.add_argument('--item-tftransform-path-file', help='')
+  parser.add_argument('--nitems-path-file', help='')
+  parser.add_argument('--nusers-path-file', help='')
   
   known_args, pipeline_args = parser.parse_known_args(argv)
 
@@ -149,7 +154,18 @@ def transform(argv=None):
                     coder = example_proto_coder.ExampleProtoCoder(
                             dataset_schema.Schema(output_schema)))
       write_count(users_for_item, known_args.nitems, "nitems")
-      write_count(items_for_user, known_args.nusers, "nusers")  
+      write_count(items_for_user, known_args.nusers, "nusers")
+      
+      Path(known_args.transform_path_file).parent.mkdir(parents=True, exist_ok=True)
+      Path(known_args.transform_path_file).write_text(known_args.transform)
+      Path(known_args.user_tftransform_path_file).parent.mkdir(parents=True, exist_ok=True)
+      Path(known_args.user_tftransform_path_file).write_text(known_args.user_tftransform)
+      Path(known_args.item_tftransform_path_file).parent.mkdir(parents=True, exist_ok=True)
+      Path(known_args.item_tftransform_path_file).write_text(known_args.item_tftransform)
+      Path(known_args.nitems_path_file).parent.mkdir(parents=True, exist_ok=True)
+      Path(known_args.nitems_path_file).write_text(known_args.nitems)
+      Path(known_args.nusers_path_file).parent.mkdir(parents=True, exist_ok=True)
+      Path(known_args.nusers_path_file).write_text(known_args.nusers)
 
 if __name__ == '__main__':
   logging.getLogger().setLevel(logging.INFO)
