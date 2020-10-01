@@ -1,29 +1,33 @@
 name: preprocess
 description: Performs the IOB preprocessing.
 inputs:
-- {name: Input URI, type: GCSPath}
-- {name: transform URI template, type: GCSPath}
-- {name: user tftransform URI template, type: GCSPath}
-- {name: item tftransform URI template, type: GCSPath}
-- {name: nitems template, type: GCSPath}
-- {name: nusers template, type: GCSPath}
+- {name: input_data_path, type: {GcsPath: {data_type: CSV}}}
+- {name: transform_path_uri, type: GCSPath}
+- {name: user_tftransform_path_uri, type: GCSPath}
+- {name: item_tftransform_path_uri, type: GCSPath}
+- {name: nitems_path_uri, type: GCSPath}
+- {name: nusers_path_uri, type: GCSPath}
 outputs:
-  - name: transform URI
-    type: GCSPath
-  - name: user tftransform URI
-  - name: item tftransform URI
-  - name: nitems
-  - name: nusers
+- {name: transform_path_uri, type: GCSPath}
+- {name: user_tftransform_path_uri, type: GCSPath}
+- {name: item_tftransform_path_uri, type: GCSPath}
+- {name: nitems_path_uri, type: GCSPath}
+- {name: nusers_path_uri, type: GCSPath}
 implementation:
   container:
-    image: gcr.io/cubeflop/kubeflow/rec/preprocess:latest
+    image: gcr.io/kubeflor/kubeflow/rec/preprocess:latest
     command: [
-      python3, /pipelines/component/src/preprocess.py,
-      --input,                        {inputValue: Input URI},
-      --transform,                      {inputValue: transform URI template},
-      --user_tftransform,                      {inputValue: user tftransform URI template},
-      --item_tftransform,    {inputValue: item tftransform URI template},
-
-      --nitems,                     {inputValue: nitems template},
-      --nusers,                     {inputValue: nusers template},
+      python3, /pipelines/component/src/processing.py,
+      --input,                 {inputValue: input_data_path},
+      --transform,             {inputValue: transform_path_uri},
+      --user-tftransform,      {inputValue: user_tftransform_path_uri },
+      --item-tftransform,      {inputValue: item_tftransform_path_uri},
+      --nitems,                {inputValue: nitems_path_uri},
+      --nusers,                {inputValue: nusers_path_uri},
+      
+      --transform-path-file,             {outputPath: transform_path_uri},
+      --user-tftransform-path-file,      {outputPath: user_tftransform_path_uri },
+      --item-tftransform-path-file,      {outputPath: item_tftransform_path_uri},
+      --nitems-path-file,                {outputPath: nitems_path_uri},
+      --nusers-path-file,                {outputPath: nusers_path_uri},
     ]
